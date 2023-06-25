@@ -1,0 +1,485 @@
+---
+title: "Visualization for Airplanes Crashes"
+author: "Daniel Villalobos"
+date: "2023-06-23"
+output:
+  ioslides_presentation:
+    widescreen: yes
+    css: styles.css
+  slidy_presentation: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+library(htmltools)
+library(tmaptools)
+library(wordcloud)
+library(tm)
+library(SnowballC)
+```
+
+
+```{r, include=FALSE}
+setwd("/Users/danielvillalobostorrejon/Documents/Uni/VD")
+filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/Airplane_Crashes_and_Fatalities_Since_1908.csv"
+df <- read.csv(filepath, sep=",")
+
+filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/region_data.csv"
+region_data <- read.csv2(filepath)
+```
+
+
+```{r, include=FALSE}
+df$Date <- as.Date(df$Date,  format = "%m/%d/%Y")
+```
+
+```{r, include=FALSE}
+# Creating interesting variables
+df$month <- month(df$Date, label = TRUE, abbr = TRUE)
+df$day_of_week <- wday(df$Date, label = TRUE, abbr = TRUE)
+df$hour <- hour(hm(df$Time))
+df$year <- format(df$Date, "%Y")
+df$is_militar <- ifelse(grepl("Military", df$Operator), "Militar", "Passenger")
+df$country <- trimws(sub(".*,\\s*", "", df$Location))
+
+# Filter bad values
+df <- df %>% 
+  filter(as.numeric(hour) <= 24)
+
+x_labels <- seq(1910, 2009, 10)
+
+```
+
+```{r, include=FALSE}
+# Create a vector of regions
+regions <- df$country
+
+# Initialize an empty dataframe to store the geospatial data
+geocoded_data <- data.frame(region = character(),
+                            lon = numeric(),
+                            lat = numeric(),
+                            stringsAsFactors = FALSE)
+
+# Loop through each region and geocode it
+# for (region in regions) {
+#   # Geocode the region
+#   tryCatch({
+#     result <- geocode_OSM(region)
+#     longitude <- result$coords[1]
+#     latitude <- result$coords[2]
+#     
+#     # Check if the geocoding was successful
+#     if (!is.na(longitude) && !is.na(latitude)) {
+#       # Add the geocoded data to the dataframe
+#       geocoded_data <- rbind(geocoded_data, data.frame(region = region,
+#                                                        lon = longitude,
+#                                                        lat = latitude,
+#                                                        stringsAsFactors = FALSE))
+#     } else {
+#       # Set the coordinates of the United States as default
+#       longitude <- -95.7129
+#       latitude <- 37.0902
+#       
+#       # Add the geocoded data to the dataframe with default values
+#       geocoded_data <- rbind(geocoded_data, data.frame(region = region,
+#                                                        lon = longitude,
+#                                                        lat = latitude,
+#                                                        stringsAsFactors = FALSE))
+#     }
+#   }, error = function(e) {
+#     # Handle the error if geocoding throws an error
+#     cat("Geocoding failed for:", region, ". Error:", conditionMessage(e), "\n")
+#   })
+# }
+
+# write.csv2(geocoded_data, "region_data.csv", row.names = FALSE)
+```
+
+
+## Total Crashes by Year
+
+```{r, include=FALSE}
+df_aggregated <- df %>%
+  mutate(year = format(Date, "%Y")) %>%
+  group_by(year) %>%
+  summarise(total_crashes = n())
+
+df_aggregated$row_index <- 1:nrow(df_aggregated)
+```
+
+- Tendencia creciente a tener más accientes 
+- También ha aumentado el uso de los aviones para realizar viajes
+
+```{r, warning=FALSE}
+ggplot(df_aggregated, aes(x = year, y = total_crashes)) +
+  geom_point() +
+  geom_segment(aes(x = year, xend = lead(year), y = total_crashes, yend = lead(total_crashes)),
+               color = "lightblue", size = 0.3) +
+  labs(x = "Year", y = "Total Crashes") +
+  ggtitle("Total Crashes by Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+
+
+## Total Crashes Periodically
+
+* No se observa ningún més con una tendencia mayor a los demás
+* Tampoco se observa una tendencia mayor en ninguno de los días de la semana
+
+```{r, include=FALSE}
+# Count crashes by month
+df_aggregated <- df %>%
+  group_by(month) %>%
+  summarise(total_crashes = n())
+```
+
+
+```{r, warning=FALSE}
+# Plot crashes by month as a bar plot
+p1 <- ggplot(df_aggregated, aes(x = month, y = total_crashes)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  labs(x = "Month", y = "Total Crashes") +
+  ggtitle("Total Crashes by Month") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, include=FALSE}
+# Count crashes by day of week
+df_aggregated <- df %>%
+  group_by(day_of_week) %>%
+  summarise(total_crashes = n())
+
+# Reorder the days of the week
+df_aggregated$day_of_week <- factor(df_aggregated$day_of_week, levels = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
+```
+
+
+```{r, warning=FALSE}
+# Plot crashes by day of week as a bar plot
+p2 <- ggplot(df_aggregated, aes(x = day_of_week, y = total_crashes)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  labs(x = "Day of Week", y = "Total Crashes") +
+  ggtitle("Total Crashes by Day of Week") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+grid_arrange_shared <- grid.arrange(p1, p2, ncol = 2)
+```
+
+
+
+```{r, include=FALSE}
+df_aggregated <- df %>%
+  group_by(hour) %>%
+  summarise(total_crashes = n())
+```
+
+
+<!-- ## Total Crashes Periodically -->
+
+```{r, warning=FALSE, include=FALSE}
+ggplot(df_aggregated, aes(x = hour, y = total_crashes)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  labs(x = "Hour", y = "Total Crashes") +
+  ggtitle("Total Crashes by Hour") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+## Total Crashes Per Operator
+
+* Se observa como en el global de accidentes de avión la mayoria son de operadoras comerciales
+* Existe un período donde los accidentes militares son más comunes que no los accidentes comerciales
+
+```{r, include=FALSE}
+category_props <- df %>%
+  group_by(is_militar) %>%
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count),
+         label = paste0(round(prop*100,0), "% (", count, ")"))
+```
+
+```{r}
+p1 <- ggplot(category_props, aes(x = "", y = prop, fill = is_militar)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(fill = "is_militar") +
+  ggtitle("Distribution of Flights") +
+  theme_minimal() +
+  theme(legend.position = "right") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5))+ 
+  guides(fill = "none")
+```
+
+```{r, include=FALSE}
+df_summary <- df %>%
+  group_by(year, is_militar) %>%
+  summarise(total_accidents = n())
+```
+
+```{r}
+p2 <- ggplot(df_summary, aes(x = year, y = total_accidents, color = is_militar, group = is_militar)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Year", y = "Total Accidents", color = "Category") +
+  ggtitle("Yearly Accidents per Category") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+```{r}
+grid.arrange(p2, p1, ncol=2, widths = c(2, 1))
+```
+
+
+## World Crashes
+
+```{r, include=FALSE}
+crashes_per_country <- aggregate(. ~ country, df, length)
+names(crashes_per_country)[names(crashes_per_country) == "country"] <- "region"
+# Merge crash data with region data
+merged_data <- merge(crashes_per_country, region_data, by = "region", all.x = TRUE)
+# Load world map data
+world_map <- map_data("world")
+```
+
+```{r, warning=FALSE}
+# Plot the world map with crashes data
+p1 <- ggplot() +
+  geom_map(data = world_map, map = world_map,
+           aes(x = long, y = lat, map_id = region),
+           fill = "lightgray", color = "gray", size = 0.25) +
+  geom_map(data = merged_data, map = world_map,
+           aes(fill = Fatalities, map_id = region),
+           color = "gray", size = 0.25) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Crashes") +
+  labs(title = "Countries with Highest Number of Crashes") +
+  theme_void()
+```
+
+* En este mapamundi de calor podemos observar aquellas regiones con más accidentes
+* Rusia y Canada son las regiones donde historicamente se han producido más accidentes
+
+```{r}
+p1
+```
+
+## Top 10 regions
+
+```{r, include=FALSE}
+df_summary <- df %>%
+  group_by(country) %>%
+  summarise(total_crashes = n())
+
+# Filter and select the top 10 countries
+top_10 <- df_summary %>%
+  top_n(10, total_crashes) %>%
+  arrange(desc(total_crashes))
+
+# Calculate the total number of crashes
+total_crashes <- sum(top_10$total_crashes)
+
+# Calculate the percentage of crashes for the top 10 countries
+```
+
+
+```{r}
+# Plot the bubble graph
+p1 <- ggplot(top_10, aes(x = reorder(country, total_crashes), y = total_crashes, size = total_crashes)) +
+  geom_point(color = "blue", alpha = 0.7) +
+  labs(x = "Country", y = "Number of Crashes", title = "Top 10 Regions with the Highest Number of Crashes") +
+  theme_minimal()
+```
+
+
+```{r, include=FALSE}
+# Create a separate big number graph
+total_percentage <- total_crashes / sum(df_summary$total_crashes) * 100
+
+big_number <- data.frame(label = paste0(round(total_percentage, 1), "%"))
+```
+
+
+```{r}
+p2 <- ggplot(big_number, aes(x = 1, y = 1, label = label)) +
+  geom_text(size = 50, color = "blue") +
+  xlim(0.5, 1.5) +
+  ylim(0.5, 1.5) +
+  theme_void()
+```
+
+Este top 10 de regiones representa un **`r big_number`** de las colisiones totales de aviones
+
+```{r}
+p1
+```
+
+
+
+## Total Fatalities by Airplane Crashes per Year
+
+```{r, include=FALSE}
+df_aggregated <- df %>%
+  group_by(year) %>%
+  summarise(total_fatalities = sum(Fatalities),
+            avg_fatalities = mean(Fatalities))
+
+df_aggregated$row_index <- 1:nrow(df_aggregated)
+```
+
+* Aumento de las muertes por accidentes de avión
+
+
+```{r, echo = FALSE, warning=FALSE}
+# Plotting
+ggplot(df_aggregated, aes(x = year, y = total_fatalities, fill = total_fatalities)) +
+  geom_point() +
+  geom_segment(aes(x = year, xend = lead(year), y = total_fatalities, yend = lead(total_fatalities)),
+               color = "lightblue", size = 0.3) +
+  labs(x = "Year", y = "Total Fatalities") +
+  ggtitle("Total Fatalities by Airplane Crashes per Year") + 
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  guides(fill = "none")+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+
+## Average Fatalities by Airplane Crashes by Year
+
+* Pero si comparamos la media de muertes por accidente vemos como la tendencia se mantiene estable al largo del periodo
+
+```{r, warning=FALSE}
+ggplot(df_aggregated, aes(x = year, y = avg_fatalities, fill = avg_fatalities)) +
+  # geom_col() +
+  geom_point() +
+  geom_segment(aes(x = year, xend = lead(year), y = avg_fatalities, yend = lead(avg_fatalities)),
+               color = "lightblue", size = 0.3) +
+  labs(x = "Year", y = "Total Fatalities") +
+  ggtitle("Average Fatalities by Airplane Crashes per Year") + 
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  guides(fill = "none")+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+
+
+## Evolution of Survivors by Year
+
+* Además viendo como cada vez los aviones son más grandes y se usan más, es más probable que muera más gente
+
+```{r}
+df_summary <- df %>%
+  group_by(year) %>%
+  summarise(total_fatalities = sum(Fatalities),
+            total_aboard = sum(Aboard))
+
+
+df_summary <- df_summary %>%
+  mutate(total_facilities = total_aboard - total_fatalities)
+
+# Define the dodge width for positioning the bars
+dodge_width <- 0.8
+
+# Plot the grouped bar plot with legend
+p1 <- ggplot(df_summary, aes(x = year)) +
+  geom_bar(aes(y = total_aboard, fill = "Aboard"), stat = "identity", alpha = 0.5, position = position_dodge(width = dodge_width), width = dodge_width) +
+  geom_bar(aes(y = total_facilities, fill = "Fatalities"), stat = "identity", alpha = 0.5, position = position_dodge(width = dodge_width), width = dodge_width) +
+  scale_fill_manual(values = c("Aboard" = "green", "Fatalities" = "darkgreen"), labels = c("Aboard", "Fatalities")) +
+  labs(x = "Year", y = "Count", fill = NULL) +
+  ggtitle("Total Fatalities, and Aboard by Year") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+
+
+```{r}
+df_summary <- df %>%
+  group_by(year) %>%
+  summarise(total_fatalities = sum(Fatalities),
+            total_aboard = sum(Aboard))
+
+# Calculate the number of survivors
+df_summary <- df_summary %>%
+  mutate(total_survivors = (total_aboard - total_fatalities)/total_aboard*100)
+
+# Plot the scatter plot
+p2 <- ggplot(df_summary, aes(x = year, y = total_survivors, size = total_survivors, color = total_fatalities)) +
+  geom_point() +
+  scale_color_gradient(low = "blue", high = "red") +
+  labs(x = "Year", y = "Survivors", title = "Evolution of Survivors (Non-Military)") +
+  theme_minimal() +
+  guides(color = "none" , size = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_x_discrete(breaks = as.character(x_labels))
+```
+
+```{r}
+p1
+```
+
+## Evolution of Survivors by Year
+
+* Pero parece que la tasa de supervivencia es mayor actualmente que en el pasado
+
+```{r}
+p2
+```
+
+
+## Worldcloud Variable Summary
+
+
+```{r, warning=FALSE}
+# Combine all the summary text into a single character vector
+text <- paste(df$Summary, collapse = " ")
+
+# Create a corpus from the text
+corpus <- Corpus(VectorSource(text))
+
+# Preprocess the corpus
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+
+# Create a term document matrix
+tdm <- TermDocumentMatrix(corpus)
+
+# Convert the term document matrix to a matrix
+matrix <- as.matrix(tdm)
+
+# Convert the matrix to a data frame
+word_freq <- data.frame(Terms = rownames(matrix), Frequency = matrix[, 1])
+pal = brewer.pal(9,"Blues")
+```
+
+```{r, warning=FALSE}
+wordcloud(word_freq$Terms, word_freq$Frequency, scale = c(5, 0.5), random.order = FALSE, colors = pal)
+```
+
+## 
+
+<h2 style="text-align: center; 
+           font-size: 80px; 
+           align-items: center; 
+           display: flex; 
+           height: 60vh ">
+           Gracias por su atención! 
+</h2>
+
