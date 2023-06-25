@@ -29,10 +29,10 @@ library(SnowballC)
 
 ```{r, include=FALSE}
 setwd("/Users/danielvillalobostorrejon/Documents/Uni/VD")
-filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/Airplane_Crashes_and_Fatalities_Since_1908.csv"
+filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/PRA/Airplane_Crashes_and_Fatalities_Since_1908.csv"
 df <- read.csv(filepath, sep=",")
 
-filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/region_data.csv"
+filepath = "/Users/danielvillalobostorrejon/Documents/Uni/VD/PRA/region_data.csv"
 region_data <- read.csv2(filepath)
 ```
 
